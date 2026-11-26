@@ -1,0 +1,335 @@
+inline var stormName = "Грозовой Страж";
+inline var stormFeatherName = "storm_husk_feather";
+inline var stormMarkName = "storm_husk_mark";
+game var stHuskRunning = 0;
+game var stHuskStop = 0;
+game var stHuskDefeated = 0;
+game var stHuskOwner = "";
+game var stHuskBoss = "";
+game var stHuskFeather = "";
+game var stHuskMark = "";
+game var stHuskRage = 0;
+game var stHuskNewVisual = "";
+
+function stHuskSpawnVisual(position, displayName, frameItem, scale, role) {
+    stHuskNewVisual = "";
+    var previousId = value::uuid<last_entity>;
+    var spawnAt = variable::set_coordinate(position, 0, "YAW");
+    spawnAt = variable::set_coordinate(spawnAt, 0, "PITCH");
+    world::spawn_item_display(spawnAt, displayName, item("paper"));
+
+    select::last_entity();
+    var candidate = value::uuid<current>;
+    var kind = value::entity_type<current>;
+    var immediate = 0;
+    if (kind.equals(["item_display", "minecraft:item_display", "ITEM_DISPLAY"])) {
+        if not (candidate.equals([previousId])) immediate = 1;
+    }
+    if (immediate.equals([0])) {
+        select::reset();
+        code::wait(2, "TICKS");
+        select::entity_by_name(displayName);
+    }
+    if (entity::exists<current>()) {
+        stHuskNewVisual = value::uuid<current>;
+        entity::set_item_display_item<current>(frameItem);
+        entity::set_item_display_model_type<current>("NONE");
+        entity::set_display_scale<current>(scale, "SET");
+        if (role.equals(["mark"])) entity::set_display_brightness<current>(15, 15);
+        if (role.equals(["feather"])) entity::set_display_interpolation<current>(2, 0);
+    }
+    select::reset();
+}
+
+
+function stHuskRefresh() {
+    if (stHuskStop.equals([1])) code::return_function();
+    select::mob_by_name(stHuskBoss);
+    if not (entity::exists<current>()) {
+        select::reset();
+        stHuskStop = 1;
+        code::return_function();
+    }
+    var feet = value::location<current>;
+    var hp = value::health<current>;
+    if (stHuskRage.equals([0])) {
+        if (hp.less(80)) {
+            stHuskRage = 1;
+            var rageMask;
+            variable::set_item_custom_model_data(rageMask, item("carved_pumpkin", name = "Багровая маска"), 288062);
+            entity::set_equipment_item<current>(rageMask, "HEAD");
+        }
+    }
+    select::reset();
+    var barProgress = hp * 0.625;
+    if (stHuskRage.equals([1])) {
+        player::set_boss_bar("storm_husk", "Грозовой Страж · Ярость", barProgress, "RED", "PROGRESS", "NONE");
+    } else {
+        player::set_boss_bar("storm_husk", stormName, barProgress, "BLUE", "PROGRESS", "NONE");
+    }
+}
+
+function stHuskSwing() {
+    select::mob_by_name(stHuskBoss);
+    if (entity::exists<current>()) entity::swing_hand<current>("MAIN");
+    select::reset();
+}
+
+function stHuskStopMovement() {
+    select::entity_by_name(stHuskBoss);
+    if (entity::exists<current>()) entity::move_to_location_stop<current>();
+    select::reset();
+}
+
+function stHuskRecovery() {
+    stHuskRefresh();
+    var cycles = 14;
+    if (stHuskRage.equals([1])) cycles = 8;
+    repeat::on_range(1, cycles, 1) { beat ->
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        if (beat.equals([1, 5, 9, 13])) {
+            var chase = value::location;
+            select::mob_by_name(stHuskBoss);
+            entity::move_to_location<current>(chase, 0.86);
+            select::reset();
+        }
+        stHuskRefresh();
+        code::wait(4, "TICKS");
+    }
+    stHuskStopMovement();
+}
+
+function stHuskDash() {
+    stHuskRefresh();
+    if (stHuskStop.equals([1])) code::return_function();
+    player::action_bar(["Страж заносит секиру — уйди с линии рывка!"]);
+    var aim = value::location;
+    select::mob_by_name(stHuskBoss);
+    var dashStart = value::location<current>;
+    entity::set_ai<current>("FALSE");
+    entity::face_location<current>(aim);
+    select::reset();
+    player::play_sound(sound("entity.husk.ambient", 1.15, 0.62), dashStart);
+    player::display_particle_line(particle("flame"), dashStart, aim, 12, "POINTS");
+    var charge = 5;
+    if (stHuskRage.equals([1])) charge = 3;
+    repeat::on_range(1, charge, 1) { beat ->
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        stHuskRefresh();
+        code::wait(4, "TICKS");
+    }
+    if (stHuskStop.equals([1])) code::return_function();
+
+    var speed = 2.7;
+    var damage = 9;
+    if (stHuskRage.equals([1])) {
+        speed = 3.6;
+        damage = 12;
+    }
+    select::mob_by_name(stHuskBoss);
+    entity::set_ai<current>("TRUE");
+    entity::move_to_location<current>(aim, speed);
+    entity::swing_hand<current>("MAIN");
+    select::reset();
+
+    var hit = 0;
+    repeat::on_range(1, 10, 1) { step ->
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        stHuskRefresh();
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        if (hit.equals([0])) {
+            select::mob_by_name(stHuskBoss);
+            var origin = value::location<current>;
+            select::reset();
+            var distance = variable::locations_distance(value::location, origin, "THREE_D");
+            if (distance.less_or_equals(2.4)) {
+                if (player::gamemode_equals("SURVIVAL")) {
+                    stHuskSwing();
+                    player::damage(damage);
+                    hit = 1;
+                }
+            }
+        }
+        code::wait(2, "TICKS");
+    }
+    stHuskStopMovement();
+}
+
+function stHuskRemove(uuid) {
+    if not (uuid.equals([""])) {
+        select::entity_by_name(uuid);
+        if (entity::exists<current>()) entity::remove<current>();
+        select::reset();
+    }
+}
+
+function stHuskClearFeather() {
+    stHuskRemove(stHuskFeather);
+    stHuskRemove(stHuskMark);
+    stHuskFeather = "";
+    stHuskMark = "";
+}
+
+function stHuskDropFeather(mark) {
+    var marker;
+    var feather;
+    variable::set_item_custom_model_data(marker, item("paper"), 288042);
+    variable::set_item_custom_model_data(feather, item("paper"), 288040);
+    var floor = variable::shift_all_coordinates(mark, 0, 0.05, 0, 0, 0);
+    floor = variable::set_coordinate(floor, 0, "PITCH");
+    stHuskSpawnVisual(floor, stormMarkName, marker, vector(5, 1, 5), "mark");
+    stHuskMark = stHuskNewVisual;
+    player::display_particle([particle("cloud", count = 18, spread_x = 1.2, spread_y = 0.1)], [floor]);
+    var warning = 10;
+    var steps = 8;
+    var damage = 7;
+    if (stHuskRage.equals([1])) {
+        warning = 6;
+        steps = 6;
+        damage = 10;
+    }
+    stHuskSwing();
+    stHuskRefresh();
+    code::wait(warning, "TICKS");
+    if (stHuskStop.equals([1])) {
+        stHuskClearFeather();
+        code::return_function();
+    }
+    var high = variable::shift_coordinate(floor, 7.6, "Y");
+    stHuskSpawnVisual(high, stormFeatherName, feather, vector(1.35, 1.35, 1.35), "feather");
+    stHuskFeather = stHuskNewVisual;
+
+    repeat::on_range(1, steps, 1) { frame ->
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        stHuskRefresh();
+        var progress = frame / steps;
+        var elevation = 7.6 - 7.3 * progress * progress;
+        var drift = (1 - progress) * 0.8;
+        var fallen = variable::shift_all_coordinates(floor, drift, elevation, 0, 0, 0);
+        var spin = 38 * frame;
+        if not (stHuskFeather.equals([""])) {
+            select::entity_by_name(stHuskFeather);
+            entity::teleport<current>(fallen, "FALSE");
+            entity::set_display_rotation_from_euler_angles<current>(12, spin, 26, "SET", "LEFT_ROTATION");
+            select::reset();
+        }
+        if (stHuskFeather.equals([""])) player::display_particle([particle("cloud", count = 5)], [fallen]);
+        code::wait(2, "TICKS");
+    }
+
+    stHuskClearFeather();
+    if (stHuskStop.equals([1])) code::return_function();
+    player::play_sound(sound("entity.firework_rocket.blast", 0.9, 0.65), floor);
+    player::display_particle([particle("cloud", count = 42, spread_x = 1.4, spread_y = 0.35)], [floor]);
+    var separation = variable::locations_distance(value::location, mark, "THREE_D");
+    if (separation.less_or_equals(2.4)) {
+        if (player::gamemode_equals("SURVIVAL")) player::damage(damage);
+    }
+    stHuskRefresh();
+    code::wait(3, "TICKS");
+}
+
+function stHuskFeatherWave() {
+    player::action_bar(["Дождь из перьев — выходи из отмеченных кругов!"]);
+    var count = 3;
+    if (stHuskRage.equals([1])) count = 5;
+    repeat::on_range(1, count, 1) { shot ->
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        stHuskDropFeather(value::location);
+    }
+}
+
+function stHuskFight() {
+    repeat::on_range(1, 16, 1) { round ->
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        stHuskRecovery();
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        stHuskDash();
+        if (stHuskStop.equals([1])) code::stop_repeat();
+        stHuskFeatherWave();
+    }
+    if (stHuskDefeated.equals([1])) {
+        player::message("Грозовой Страж повержен!");
+    }
+}
+
+function stHuskCleanup() {
+    player::remove_boss_bar("storm_husk");
+    stHuskClearFeather();
+    stHuskRemove(stHuskBoss);
+    stHuskBoss = "";
+    stHuskOwner = "";
+    stHuskRunning = 0;
+}
+function stHuskSummon() {
+    stHuskRunning = 1;
+    stHuskStop = 0;
+    stHuskDefeated = 0;
+    stHuskRage = 0;
+    stHuskOwner = value::uuid;
+
+    var mask;
+    var axe;
+    variable::set_item_custom_model_data(mask, item("carved_pumpkin", name = "Перьевая маска"), 288060);
+    variable::set_item_custom_model_data(axe, item("iron_axe", name = "Грозовая секира"), 288064);
+    var start = variable::shift_coordinate(value::location, 5, "X");
+    world::spawn_mob(item("husk_spawn_egg"), start, 160, stormName,
+        main_hand = axe, helmet = mask, natural_equipment = "FALSE");
+    if (entity::name_equals<last_entity>([stormName])) {
+        stHuskBoss = value::uuid<last_entity>;
+        entity::set_despawning<last_entity>("FALSE");
+        entity::set_max_health<last_entity>(160, "TRUE");
+        entity::set_current_health<last_entity>(160);
+        entity::set_equipment_item<last_entity>(mask, "HEAD");
+        entity::set_equipment_item<last_entity>(axe, "HAND");
+        player::message("Грозовой Страж пробудился!");
+        stHuskFight();
+    } else {
+        player::message("Не удалось призвать Стража. Попробуй на открытой площадке.");
+    }
+    stHuskCleanup();
+}
+
+event<player_chat> {
+    if (player::has_privilege("OWNER", "TRUE")) {
+        var message = value::event_chat_message;
+        if (message.equals(["@гроза стоп"])) {
+            world::cancel_event();
+            stHuskStop = 1;
+        }
+        if (message.equals(["@гроза"])) {
+            world::cancel_event();
+            if (stHuskRunning.equals([1])) {
+                player::message("Бой уже идёт. Для остановки напиши @гроза стоп.");
+            } else {
+                stHuskSummon();
+            }
+        }
+    }
+}
+
+event<entity_damage_player> {
+    if not (stHuskBoss.equals([""])) {
+        if (stHuskBoss.equals([value::uuid<damager_entity>])) {
+            world::cancel_event();
+        }
+    }
+}
+
+event<entity_death> {
+    if not (stHuskBoss.equals([""])) {
+        if (stHuskBoss.equals([value::uuid<default_entity>])) {
+            stHuskDefeated = 1;
+            stHuskStop = 1;
+        }
+    }
+}
+
+event<player_quit> {
+    if (stHuskOwner.equals([value::uuid])) stHuskStop = 1;
+}
+
+event<player_death> {
+    if (stHuskOwner.equals([value::uuid])) stHuskStop = 1;
+}
+
