@@ -1,7 +1,7 @@
 inline var henName = "Грозовая Курица";
-inline var henBodyName = "Грозовая Курица · модель";
-inline var henFeatherName = "Грозовая Курица · перо";
-inline var henMarkName = "Грозовая Курица · метка";
+inline var henBodyName = "storm_hen_body";
+inline var henFeatherName = "storm_hen_feather";
+inline var henMarkName = "storm_hen_mark";
 game var shRunning = 0;
 game var shStop = 0;
 game var shDefeated = 0;
@@ -12,18 +12,19 @@ game var shFeather = "";
 game var shMark = "";
 game var shRage = 0;
 game var shFrame = -1;
+game var shNewVisual = "";
 
 event<player_chat> {
     if (player::has_privilege("OWNER", "TRUE")) {
         var message = value::event_chat_message;
-        if (message.equals(["!курица стоп"])) {
+        if (message.equals(["@курица стоп"])) {
             world::cancel_event();
             shStop = 1;
         }
-        if (message.equals(["!курица"])) {
+        if (message.equals(["@курица"])) {
             world::cancel_event();
             if (shRunning.equals([1])) {
-                player::message("Бой уже идёт. Для остановки напиши !курица стоп.");
+                player::message("Бой уже идёт. Для остановки напиши @курица стоп.");
             } else {
                 shSummon();
             }
@@ -73,7 +74,7 @@ function shSummon() {
         entity::set_current_health<last_entity>(160);
         shMakeBody(start);
         if (shBody.equals([""])) {
-            player::message("Не удалось создать модель курицы. Бой отменён.");
+            player::message("JustMC не вернул визуализатор предмета после создания. Бой отменён.");
         } else {
             select::entity_by_name(shBoss);
             entity::set_invisible<current>("TRUE");
@@ -91,13 +92,41 @@ function shMakeBody(start) {
     var model;
     variable::set_item_custom_model_data(model, item("paper"), 288000);
     var center = variable::shift_coordinate(start, 2.5, "Y");
-    world::spawn_item_display(center, henBodyName, model);
-    if (entity::name_equals<last_entity>([henBodyName])) {
-        shBody = value::uuid<last_entity>;
-        entity::set_item_display_model_type<last_entity>("NONE");
-        entity::set_display_scale<last_entity>(vector(5, 5, 5), "SET");
-        entity::set_display_culling_suze<last_entity>(7, 7);
+    shSpawnVisual(center, henBodyName, model, vector(5, 5, 5), "body");
+    shBody = shNewVisual;
+}
+
+function shSpawnVisual(position, displayName, frameItem, scale, role) {
+    shNewVisual = "";
+    var previousId = value::uuid<last_entity>;
+    world::spawn_item_display(position, displayName, item("paper"));
+
+    select::entity_by_name(displayName);
+    if not (entity::exists<current>()) {
+        select::last_entity();
+        if (entity::exists<current>()) {
+            var found = value::uuid<current>;
+            var kind = value::entity_type<current>;
+            if not (found.equals([previousId])) {
+                if (kind.equals(["item_display", "minecraft:item_display", "ITEM_DISPLAY"])) {
+                    entity::set_custom_name<current>(displayName);
+                }
+            }
+        }
+        select::reset();
+        code::wait(1, "TICKS");
+        select::entity_by_name(displayName);
     }
+    if (entity::exists<current>()) {
+        shNewVisual = displayName;
+        entity::set_item_display_item<current>(frameItem);
+        entity::set_item_display_model_type<current>("NONE");
+        entity::set_display_scale<current>(scale, "SET");
+        if (role.equals(["body"])) entity::set_display_culling_suze<current>(7, 7);
+        if (role.equals(["mark"])) entity::set_display_brightness<current>(15, 15);
+        if (role.equals(["feather"])) entity::set_display_interpolation<current>(2, 0);
+    }
+    select::reset();
 }
 
 function shFight() {
@@ -201,13 +230,8 @@ function shDropFeather(mark) {
     variable::set_item_custom_model_data(feather, item("paper"), 288040);
     var floor = variable::shift_all_coordinates(mark, 0, 0.05, 0, 0, 0);
     floor = variable::set_coordinate(floor, 0, "PITCH");
-    world::spawn_item_display(floor, henMarkName, marker);
-    if (entity::name_equals<last_entity>([henMarkName])) {
-        shMark = value::uuid<last_entity>;
-        entity::set_item_display_model_type<last_entity>("NONE");
-        entity::set_display_scale<last_entity>(vector(5, 1, 5), "SET");
-        entity::set_display_brightness<last_entity>(15, 15);
-    }
+    shSpawnVisual(floor, henMarkName, marker, vector(5, 1, 5), "mark");
+    shMark = shNewVisual;
     player::display_particle([particle("cloud", count = 18, spread_x = 1.2, spread_y = 0.1)], [floor]);
     var warning = 10;
     var steps = 8;
@@ -224,13 +248,8 @@ function shDropFeather(mark) {
         code::return_function();
     }
     var high = variable::shift_coordinate(floor, 7.6, "Y");
-    world::spawn_item_display(high, henFeatherName, feather);
-    if (entity::name_equals<last_entity>([henFeatherName])) {
-        shFeather = value::uuid<last_entity>;
-        entity::set_item_display_model_type<last_entity>("NONE");
-        entity::set_display_scale<last_entity>(vector(1.35, 1.35, 1.35), "SET");
-        entity::set_display_interpolation<last_entity>(2, 0);
-    }
+    shSpawnVisual(high, henFeatherName, feather, vector(1.35, 1.35, 1.35), "feather");
+    shFeather = shNewVisual;
 
     repeat::on_range(1, steps, 1) { frame ->
         if (shStop.equals([1])) code::stop_repeat();
