@@ -1,0 +1,58 @@
+inline var blueName = "Маска курицы · бирюзовая";
+inline var redName = "Маска курицы · багровая";
+game var henTestBlue = "";
+game var henTestRed = "";
+
+function henTestRemove(uuid) {
+    if not (uuid.equals([""])) {
+        select::mob_by_name(uuid);
+        if (entity::exists<current>()) entity::remove<current>();
+        select::reset();
+    }
+}
+
+function henTestClear() {
+    henTestRemove(henTestBlue);
+    henTestRemove(henTestRed);
+    henTestBlue = "";
+    henTestRed = "";
+}
+
+function henTestSpawn() {
+    henTestClear();
+    var origin = value::location;
+    var first = variable::shift_all_coordinates(origin, 2, 0, 3, 0, 0);
+    var second = variable::shift_all_coordinates(origin, -2, 0, 3, 0, 0);
+    var blueMask;
+    var redMask;
+    variable::set_item_custom_model_data(blueMask, item("carved_pumpkin", name = "Маска грозы"), 288050);
+    variable::set_item_custom_model_data(redMask, item("carved_pumpkin", name = "Маска ярости"), 288052);
+    world::spawn_mob(item("chicken_spawn_egg"), first, 4, blueName, helmet = blueMask, natural_equipment = "FALSE");
+    if (entity::name_equals<last_entity>([blueName])) {
+        henTestBlue = value::uuid<last_entity>;
+        entity::set_equipment_item<last_entity>(blueMask, "HEAD");
+    }
+    world::spawn_mob(item("chicken_spawn_egg"), second, 4, redName, helmet = redMask, natural_equipment = "FALSE");
+    if (entity::name_equals<last_entity>([redName])) {
+        henTestRed = value::uuid<last_entity>;
+        entity::set_equipment_item<last_entity>(redMask, "HEAD");
+    }
+    if (henTestBlue.equals([""])) player::message("Не удалось подтвердить спавн бирюзовой курицы.");
+    if (henTestRed.equals([""])) player::message("Не удалось подтвердить спавн багровой курицы.");
+    player::message("Достань семена, чтобы курицы повернулись и пошли за тобой. Убрать тест: @маска стоп.");
+}
+
+event<player_chat> {
+    if (player::has_privilege("OWNER", "TRUE")) {
+        var message = value::event_chat_message;
+        if (message.equals(["@маска"])) {
+            world::cancel_event();
+            henTestSpawn();
+        }
+        if (message.equals(["@маска стоп"])) {
+            world::cancel_event();
+            henTestClear();
+            player::message("Тестовые курицы убраны.");
+        }
+    }
+}
