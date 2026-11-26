@@ -14,111 +14,26 @@ game var shRage = 0;
 game var shFrame = -1;
 game var shNewVisual = "";
 
-event<player_chat> {
-    if (player::has_privilege("OWNER", "TRUE")) {
-        var message = value::event_chat_message;
-        if (message.equals(["@курица стоп"])) {
-            world::cancel_event();
-            shStop = 1;
-        }
-        if (message.equals(["@курица"])) {
-            world::cancel_event();
-            if (shRunning.equals([1])) {
-                player::message("Бой уже идёт. Для остановки напиши @курица стоп.");
-            } else {
-                shSummon();
-            }
-        }
-    }
-}
-
-event<entity_damage_player> {
-    if not (shBoss.equals([""])) {
-        if (shBoss.equals([value::uuid<damager_entity>])) {
-            world::cancel_event();
-        }
-    }
-}
-
-event<entity_death> {
-    if not (shBoss.equals([""])) {
-        if (shBoss.equals([value::uuid<default_entity>])) {
-            shDefeated = 1;
-            shStop = 1;
-        }
-    }
-}
-
-event<player_quit> {
-    if (shOwner.equals([value::uuid])) shStop = 1;
-}
-
-event<player_death> {
-    if (shOwner.equals([value::uuid])) shStop = 1;
-}
-
-function shSummon() {
-    shRunning = 1;
-    shStop = 0;
-    shDefeated = 0;
-    shRage = 0;
-    shFrame = -1;
-    shOwner = value::uuid;
-
-    var start = variable::shift_coordinate(value::location, 5, "X");
-    world::spawn_mob(item("ravager_spawn_egg"), start, 160, henName, natural_equipment = "FALSE");
-    if (entity::name_equals<last_entity>([henName])) {
-        shBoss = value::uuid<last_entity>;
-        entity::set_despawning<last_entity>("FALSE");
-        entity::set_max_health<last_entity>(160, "TRUE");
-        entity::set_current_health<last_entity>(160);
-        shMakeBody(start);
-        if (shBody.equals([""])) {
-            player::message("JustMC не вернул визуализатор предмета после создания. Бой отменён.");
-        } else {
-            select::entity_by_name(shBoss);
-            entity::set_invisible<current>("TRUE");
-            select::reset();
-            player::message("Грозовая Курица пробудилась! Бей её у ног.");
-            shFight();
-        }
-    } else {
-        player::message("Не удалось призвать курицу. Попробуй на открытой площадке.");
-    }
-    shCleanup();
-}
-
-function shMakeBody(start) {
-    var model;
-    variable::set_item_custom_model_data(model, item("paper"), 288000);
-    var center = variable::shift_coordinate(start, 2.5, "Y");
-    shSpawnVisual(center, henBodyName, model, vector(5, 5, 5), "body");
-    shBody = shNewVisual;
-}
-
 function shSpawnVisual(position, displayName, frameItem, scale, role) {
     shNewVisual = "";
     var previousId = value::uuid<last_entity>;
     world::spawn_item_display(position, displayName, item("paper"));
 
-    select::entity_by_name(displayName);
-    if not (entity::exists<current>()) {
-        select::last_entity();
-        if (entity::exists<current>()) {
-            var found = value::uuid<current>;
-            var kind = value::entity_type<current>;
-            if not (found.equals([previousId])) {
-                if (kind.equals(["item_display", "minecraft:item_display", "ITEM_DISPLAY"])) {
-                    entity::set_custom_name<current>(displayName);
-                }
-            }
-        }
+    select::last_entity();
+    var candidate = value::uuid<current>;
+    var kind = value::entity_type<current>;
+    var immediate = 0;
+    if (kind.equals(["item_display", "minecraft:item_display", "ITEM_DISPLAY"])) {
+        if not (candidate.equals([previousId])) immediate = 1;
+    }
+    if (immediate.equals([0])) {
         select::reset();
-        code::wait(1, "TICKS");
+        code::wait(2, "TICKS");
         select::entity_by_name(displayName);
     }
     if (entity::exists<current>()) {
-        shNewVisual = displayName;
+        shNewVisual = value::uuid<current>;
+        if (role.equals(["body"])) shBody = value::uuid<current>;
         entity::set_item_display_item<current>(frameItem);
         entity::set_item_display_model_type<current>("NONE");
         entity::set_display_scale<current>(scale, "SET");
@@ -129,18 +44,62 @@ function shSpawnVisual(position, displayName, frameItem, scale, role) {
     select::reset();
 }
 
-function shFight() {
-    repeat::on_range(1, 16, 1) { round ->
-        if (shStop.equals([1])) code::stop_repeat();
-        shRecovery();
-        if (shStop.equals([1])) code::stop_repeat();
-        shDash();
-        if (shStop.equals([1])) code::stop_repeat();
-        shFeatherWave();
+function shMakeBody(start) {
+    var model;
+    variable::set_item_custom_model_data(model, item("paper"), 288000);
+    var center = variable::shift_coordinate(start, 2.5, "Y");
+    shSpawnVisual(center, henBodyName, model, vector(5, 5, 5), "body");
+}
+
+function shPoseAt(pose, aim) {
+    if (shStop.equals([1])) code::return_function();
+    select::entity_by_name(shBoss);
+    if not (entity::exists<current>()) {
+        select::reset();
+        shStop = 1;
+        code::return_function();
     }
-    if (shDefeated.equals([1])) {
-        player::message("Грозовая Курица повержена!");
+    var feet = value::location<current>;
+    var hp = value::health<current>;
+    select::reset();
+
+    if (shRage.equals([0])) {
+        if (hp.less(80)) {
+            shRage = 1;
+            player::action_bar(["ЯРОСТЬ — глаза краснеют, атаки ускоряются!"]);
+            player::play_sound(sound("entity.ravager.roar", 0.9, 1.4), feet);
+        }
     }
+    if (shBody.equals([""])) code::return_function();
+    var forward = variable::face_location(feet, aim);
+    forward = variable::set_coordinate(forward, 0, "PITCH");
+    var center = variable::shift_coordinate(forward, 2.5, "Y");
+    var modelId = 288000 + 20 * shRage + pose;
+    select::entity_by_name(shBody);
+    if (entity::exists<current>()) {
+        entity::teleport<current>(center, "FALSE");
+        if not (shFrame.equals([modelId])) {
+            var frameItem;
+            variable::set_item_custom_model_data(frameItem, item("paper"), modelId);
+            entity::set_item_display_item<current>(frameItem);
+            shFrame = modelId;
+        }
+    } else {
+        shBody = "";
+        select::entity_by_name(shBoss);
+        entity::set_invisible<current>("FALSE");
+    }
+    select::reset();
+}
+
+function shPose(pose) {
+    shPoseAt(pose, value::location);
+}
+
+function shStopMovement() {
+    select::entity_by_name(shBoss);
+    if (entity::exists<current>()) entity::move_to_location_stop<current>();
+    select::reset();
 }
 
 function shRecovery() {
@@ -213,14 +172,19 @@ function shDash() {
     shStopMovement();
 }
 
-function shFeatherWave() {
-    player::action_bar(["Дождь из перьев — выходи из отмеченных кругов!"]);
-    var count = 3;
-    if (shRage.equals([1])) count = 5;
-    repeat::on_range(1, count, 1) { shot ->
-        if (shStop.equals([1])) code::stop_repeat();
-        shDropFeather(value::location);
+function shRemove(uuid) {
+    if not (uuid.equals([""])) {
+        select::entity_by_name(uuid);
+        if (entity::exists<current>()) entity::remove<current>();
+        select::reset();
     }
+}
+
+function shClearFeather() {
+    shRemove(shFeather);
+    shRemove(shMark);
+    shFeather = "";
+    shMark = "";
 }
 
 function shDropFeather(mark) {
@@ -280,67 +244,28 @@ function shDropFeather(mark) {
     code::wait(3, "TICKS");
 }
 
-function shPose(pose) {
-    shPoseAt(pose, value::location);
-}
-
-function shPoseAt(pose, aim) {
-    if (shStop.equals([1])) code::return_function();
-    select::entity_by_name(shBoss);
-    if not (entity::exists<current>()) {
-        select::reset();
-        shStop = 1;
-        code::return_function();
-    }
-    var feet = value::location<current>;
-    var hp = value::health<current>;
-    select::reset();
-
-    if (shRage.equals([0])) {
-        if (hp.less(80)) {
-            shRage = 1;
-            player::action_bar(["ЯРОСТЬ — глаза краснеют, атаки ускоряются!"]);
-            player::play_sound(sound("entity.ravager.roar", 0.9, 1.4), feet);
-        }
-    }
-    var forward = variable::face_location(feet, aim);
-    forward = variable::set_coordinate(forward, 0, "PITCH");
-    var center = variable::shift_coordinate(forward, 2.5, "Y");
-    var modelId = 288000 + 20 * shRage + pose;
-    select::entity_by_name(shBody);
-    if (entity::exists<current>()) {
-        entity::teleport<current>(center, "FALSE");
-        if not (shFrame.equals([modelId])) {
-            var frameItem;
-            variable::set_item_custom_model_data(frameItem, item("paper"), modelId);
-            entity::set_item_display_item<current>(frameItem);
-            shFrame = modelId;
-        }
-    } else {
-        shStop = 1;
-    }
-    select::reset();
-}
-
-function shStopMovement() {
-    select::entity_by_name(shBoss);
-    if (entity::exists<current>()) entity::move_to_location_stop<current>();
-    select::reset();
-}
-
-function shRemove(uuid) {
-    if not (uuid.equals([""])) {
-        select::entity_by_name(uuid);
-        if (entity::exists<current>()) entity::remove<current>();
-        select::reset();
+function shFeatherWave() {
+    player::action_bar(["Дождь из перьев — выходи из отмеченных кругов!"]);
+    var count = 3;
+    if (shRage.equals([1])) count = 5;
+    repeat::on_range(1, count, 1) { shot ->
+        if (shStop.equals([1])) code::stop_repeat();
+        shDropFeather(value::location);
     }
 }
 
-function shClearFeather() {
-    shRemove(shFeather);
-    shRemove(shMark);
-    shFeather = "";
-    shMark = "";
+function shFight() {
+    repeat::on_range(1, 16, 1) { round ->
+        if (shStop.equals([1])) code::stop_repeat();
+        shRecovery();
+        if (shStop.equals([1])) code::stop_repeat();
+        shDash();
+        if (shStop.equals([1])) code::stop_repeat();
+        shFeatherWave();
+    }
+    if (shDefeated.equals([1])) {
+        player::message("Грозовая Курица повержена!");
+    }
 }
 
 function shCleanup() {
@@ -352,3 +277,78 @@ function shCleanup() {
     shOwner = "";
     shRunning = 0;
 }
+function shSummon() {
+    shRunning = 1;
+    shStop = 0;
+    shDefeated = 0;
+    shRage = 0;
+    shFrame = -1;
+    shOwner = value::uuid;
+
+    var start = variable::shift_coordinate(value::location, 5, "X");
+    world::spawn_mob(item("ravager_spawn_egg"), start, 160, henName, natural_equipment = "FALSE");
+    if (entity::name_equals<last_entity>([henName])) {
+        shBoss = value::uuid<last_entity>;
+        entity::set_despawning<last_entity>("FALSE");
+        entity::set_max_health<last_entity>(160, "TRUE");
+        entity::set_current_health<last_entity>(160);
+        shMakeBody(start);
+        if (shBody.equals([""])) {
+            player::message("Модель не найдена. Бой продолжится с видимым разорителем.");
+            shFight();
+        } else {
+            select::entity_by_name(shBoss);
+            entity::set_invisible<current>("TRUE");
+            select::reset();
+            player::message("Грозовая Курица пробудилась! Бей её у ног.");
+            shFight();
+        }
+    } else {
+        player::message("Не удалось призвать курицу. Попробуй на открытой площадке.");
+    }
+    shCleanup();
+}
+
+event<player_chat> {
+    if (player::has_privilege("OWNER", "TRUE")) {
+        var message = value::event_chat_message;
+        if (message.equals(["@курица стоп"])) {
+            world::cancel_event();
+            shStop = 1;
+        }
+        if (message.equals(["@курица"])) {
+            world::cancel_event();
+            if (shRunning.equals([1])) {
+                player::message("Бой уже идёт. Для остановки напиши @курица стоп.");
+            } else {
+                shSummon();
+            }
+        }
+    }
+}
+
+event<entity_damage_player> {
+    if not (shBoss.equals([""])) {
+        if (shBoss.equals([value::uuid<damager_entity>])) {
+            world::cancel_event();
+        }
+    }
+}
+
+event<entity_death> {
+    if not (shBoss.equals([""])) {
+        if (shBoss.equals([value::uuid<default_entity>])) {
+            shDefeated = 1;
+            shStop = 1;
+        }
+    }
+}
+
+event<player_quit> {
+    if (shOwner.equals([value::uuid])) shStop = 1;
+}
+
+event<player_death> {
+    if (shOwner.equals([value::uuid])) shStop = 1;
+}
+
